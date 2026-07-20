@@ -2,6 +2,9 @@
 extends Node2D
 
 func _ready():
+	# Play overworld music when test world loads
+	AudioManager.play_theme("overworld_placeholder")
+	
 	# Run for a few physics frames
 	await get_tree().create_timer(0.1).timeout
 	

@@ -13,6 +13,9 @@ func _ready() -> void:
 	
 	# Check for autosaves
 	_update_load_button()
+	
+	# Play placeholder overworld music on menu load
+	AudioManager.play_theme("overworld_placeholder")
 
 func _on_new_game() -> void:
 	GameManager.game_running = true
