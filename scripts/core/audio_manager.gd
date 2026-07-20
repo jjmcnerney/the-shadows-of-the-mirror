@@ -6,6 +6,14 @@ extends Node
 const MUSIC_BUS := "Music"
 const SFX_BUS := "SFX"
 
+## Placeholder music tracks (Phase 1)
+## Tracks A/B are 30s placeholder loops uploaded by the team.
+## Map theme names -> res paths. Replace with composed themes in Phase 3 (T3.8.1).
+const MUSIC_TRACKS := {
+	"overworld_placeholder": "res://assets/audio/music/placeholder_track_a.mp3",
+	"dungeon_placeholder": "res://assets/audio/music/placeholder_track_b.mp3",
+}
+
 var music_player: AudioStreamPlayer = null
 
 var current_theme: String = ""
@@ -34,6 +42,12 @@ func play_music(stream_path: String, volume: float = -6.0) -> void:
 		printerr("[AudioManager] Failed to load music: %s" % stream_path)
 		return
 	
+	# Loop if the stream supports it (MP3/OGG)
+	if stream is AudioStreamMP3:
+		stream.loop = true
+	elif stream is AudioStreamOggVorbis:
+		stream.loop = true
+	
 	# Crossfade if another theme is playing
 	if current_theme != "" and music_player.playing:
 		await _fade_out_music()
@@ -43,6 +57,20 @@ func play_music(stream_path: String, volume: float = -6.0) -> void:
 	music_player.play()
 	current_theme = stream_path
 	print("[AudioManager] Playing: %s" % stream_path)
+
+## Play a registered theme by name (see MUSIC_TRACKS)
+func play_theme(theme_name: String, volume: float = -6.0) -> void:
+	if not MUSIC_TRACKS.has(theme_name):
+		printerr("[AudioManager] Unknown theme: %s" % theme_name)
+		return
+	play_music(MUSIC_TRACKS[theme_name], volume)
+
+## Returns the list of registered theme names
+func get_theme_list() -> PackedStringArray:
+	var keys: PackedStringArray = []
+	for key in MUSIC_TRACKS.keys():
+		keys.append(key)
+	return keys
 
 func stop_music(fade: bool = false) -> void:
 	if fade:

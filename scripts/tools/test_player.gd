@@ -73,5 +73,17 @@ func _run_tests() -> void:
 	print("[T9] Octorok scene + take_damage: %s" % oct_ok)
 	print("[T9a] Moblin scene + take_damage: %s" % mob_ok)
 	
+	# Test 10: Music tracks registered + loadable
+	var theme_list := AudioManager.get_theme_list()
+	print("[T10] Registered themes: %d" % theme_list.size())
+	var music_ok: bool = true
+	for theme in theme_list:
+		var path: String = AudioManager.MUSIC_TRACKS[theme]
+		var stream: AudioStream = load(path)
+		if stream == null:
+			print("[T10] FAIL: cannot load %s at %s" % [theme, path])
+			music_ok = false
+	print("[T10a] All music tracks load: %s" % music_ok)
+	
 	print("\n=== All tests passed ===")
 	get_tree().quit()
