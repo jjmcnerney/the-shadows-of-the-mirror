@@ -1,0 +1,22 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/world/save_point.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/art/world/save_point_placeholder.png" id="1_texture"]
+
+[sub_resource type="RectangleShape2D" id="CollisionShape2D_1"]
+size = Vector2(16, 16)
+
+[node name="SavePoint" type="Area2D"]
+script = ExtResource("1_script")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("1_texture")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CollisionShape2D_1")
+
+[node name="Prompt" type="Label" parent="."]
+offset_right = 200.0
+offset_bottom = 24.0
+position = Vector2(0, -28)
+text = "Press SPACE to save"

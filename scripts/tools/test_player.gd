@@ -96,5 +96,22 @@ func _run_tests() -> void:
 		crypt.free()
 	print("[T11] Cathedral Crypts scene + TileMap: %s" % crypt_ok)
 	
+	# Test 12: SavePoint scene loads + save works
+	var sp_scene: PackedScene = load("res://scenes/world/save_point.tscn")
+	var sp_ok: bool = sp_scene != null
+	if sp_ok:
+		var sp: Node = sp_scene.instantiate()
+		sp_ok = sp.has_method("_do_save")
+		sp.queue_free()
+	# Also verify GameManager.save() writes a slot file
+	var before := GameManager.get_save_slots()
+	var before_has: bool = before[0]["has_save"]
+	var err := GameManager.save(0)
+	var after := GameManager.get_save_slots()
+	var after_has: bool = after[0]["has_save"]
+	if err != OK or (not before_has and not after_has):
+		sp_ok = false
+	print("[T12] SavePoint scene + GameManager.save: %s (err=%d, slot0=%s)" % [sp_ok, err, after_has])
+	
 	print("\n=== All tests passed ===")
 	get_tree().quit()

@@ -36,6 +36,7 @@ func _ready() -> void:
 	_build_collision()
 	_spawn_player()
 	_place_markers()
+	_place_save_point()
 	# Play dungeon placeholder music (track B)
 	AudioManager.play_theme("dungeon_placeholder")
 	print("[CathedralCrypts] Blockout ready (%dx%d tiles)" % [MAP[0].length(), MAP.size()])
@@ -94,6 +95,12 @@ func _place_markers() -> void:
 	_add_marker("B", "bomb_bag", "Got the Bomb Bag!")
 	_add_marker("S", "basic_shield", "Got the Basic Shield!")
 	_add_marker("X", "exit", "Reached the exit!")
+
+func _place_save_point() -> void:
+	var sp := preload("res://scenes/world/save_point.tscn").instantiate()
+	# Free floor tile in entrance room (matrix row 5, col 3)
+	sp.position = Vector2(3 * TILE + TILE / 2.0, 5 * TILE + TILE / 2.0)
+	add_child(sp)
 
 func _add_marker(ch: String, item: String, msg: String) -> void:
 	var pos := _find_char(ch)
