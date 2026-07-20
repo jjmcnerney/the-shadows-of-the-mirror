@@ -10,6 +10,9 @@ const DASH_SPEED: float = 250.0
 const SWIM_SPEED: float = 60.0
 const ACCELERATION: float = 800.0
 const FRICTION: float = 1200.0
+const JUMP_SPEED: float = 200.0  # horizontal speed during jump arc
+const JUMP_DURATION: float = 0.35  # time in air
+const JUMP_ARC_HEIGHT: float = 12.0  # visual Y offset for arc
 
 ## Combat constants
 const SWORD_DAMAGE: int = 1
@@ -23,6 +26,7 @@ enum State {
 	IDLE,
 	WALKING,
 	DASHING,
+	JUMPING,
 	ATTACKING,
 	SPIN_ATTACKING,
 	CHARGING,
@@ -52,6 +56,11 @@ var dash_button_held: bool = false
 # Sword charge timer (for spin attack)
 var sword_charge_timer: float = 0.0
 var is_charging: bool = false
+
+# Jump state
+var jump_direction: Vector2 = Vector2.ZERO
+var jump_timer: float = 0.0
+var jump_arc_offset: float = 0.0  # visual Y offset for jump arc
 
 # Invincibility after hurt
 var invincible: bool = false
@@ -145,6 +154,8 @@ func _handle_state(delta: float) -> void:
 			_handle_movement_state(delta)
 		State.DASHING:
 			_handle_dash_state(delta)
+		State.JUMPING:
+			_handle_jump_state(delta)
 		State.ATTACKING:
 			_handle_attack_state(delta)
 		State.SPIN_ATTACKING:
@@ -180,9 +191,46 @@ func _handle_dash_state(delta: float) -> void:
 	var target_velocity: Vector2 = dash_direction * dash_speed
 	velocity = target_velocity
 	
+	# Jump if dashing off an edge (over a gap) — contextual jump per §6.2
+	if not is_on_floor():
+		_start_jump(dash_direction)
+		return
+	
 	# Dash ends when player stops holding or hits terrain (handled in collision)
 	if not Input.is_action_pressed("interact"):
 		_end_dash()
+
+func _handle_jump_state(delta: float) -> void:
+	jump_timer += delta
+	var progress: float = jump_timer / JUMP_DURATION
+	
+	# Horizontal movement continues during jump
+	velocity = jump_direction * JUMP_SPEED
+	
+	# Visual arc: sin curve from 0 to PI gives up-down arc
+	jump_arc_offset = sin(progress * PI) * JUMP_ARC_HEIGHT
+	
+	if jump_timer >= JUMP_DURATION:
+		# Land
+		jump_arc_offset = 0.0
+		previous_state = current_state
+		current_state = State.IDLE
+		jump_timer = 0.0
+		if anim_player and anim_player.has_animation("land"):
+			anim_player.play("land")
+
+func _start_jump(direction: Vector2) -> void:
+	if current_state == State.HURT or current_state == State.JUMPING:
+		return
+	
+	jump_direction = direction.normalized()
+	jump_timer = 0.0
+	is_dashing = false  # jumping cancels dash
+	previous_state = current_state
+	current_state = State.JUMPING
+	
+	if anim_player and anim_player.has_animation("jump"):
+		anim_player.play("jump")
 
 func _handle_attack_state(delta: float) -> void:
 	# Single frame attack — just deal damage and return to previous state
@@ -367,6 +415,10 @@ func _move_and_collide() -> void:
 		var head_y: float = position.y + float(TILE_SIZE)
 		var tile_y: int = int(floorf(head_y / float(TILE_SIZE)))
 		position.y = float(tile_y + 1) * float(TILE_SIZE) - float(TILE_SIZE)
+	
+	# Apply jump arc visual offset to sprite (doesn't affect physics position)
+	if has_node("Sprite2D"):
+		$Sprite2D.position.y = -jump_arc_offset
 
 # ---------- Facing ----------
 
@@ -445,6 +497,8 @@ func _update_animation() -> void:
 			anim_player.play("walk_%s" % _direction_string(facing))
 		State.DASHING:
 			anim_player.play("dash_%s" % _direction_string(dash_direction))
+		State.JUMPING:
+			anim_player.play("jump")
 		State.HURT:
 			anim_player.play("hurt")
 

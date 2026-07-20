@@ -57,5 +57,21 @@ func _run_tests() -> void:
 	print("[T8] Player emits shot_arrow: %s" % has_shot_signal)
 	print("[T8a] Player emits used_item: %s" % has_use_signal)
 	
+	# Test 9: Enemy scenes load + instantiate
+	var octorok_scene: PackedScene = load("res://scenes/enemies/octorok.tscn")
+	var moblin_scene: PackedScene = load("res://scenes/enemies/moblin.tscn")
+	var oct_ok: bool = octorok_scene != null
+	var mob_ok: bool = moblin_scene != null
+	if oct_ok:
+		var oct: Node = octorok_scene.instantiate()
+		oct_ok = oct.has_method("take_damage")
+		oct.queue_free()
+	if mob_ok:
+		var mob: Node = moblin_scene.instantiate()
+		mob_ok = mob.has_method("take_damage")
+		mob.queue_free()
+	print("[T9] Octorok scene + take_damage: %s" % oct_ok)
+	print("[T9a] Moblin scene + take_damage: %s" % mob_ok)
+	
 	print("\n=== All tests passed ===")
 	get_tree().quit()
