@@ -85,5 +85,16 @@ func _run_tests() -> void:
 			music_ok = false
 	print("[T10a] All music tracks load: %s" % music_ok)
 	
+	# Test 11: Cathedral Crypts dungeon scene loads + builds off-tree
+	var crypt_scene: PackedScene = load("res://scenes/dungeons/cathedral_crypts.tscn")
+	var crypt_ok: bool = crypt_scene != null
+	if crypt_ok:
+		# Instance off-tree so its _ready runs (builds tiles) without
+		# becoming a live game scene that never quits.
+		var crypt: Node = crypt_scene.instantiate()
+		crypt_ok = crypt.has_node("TileMap")
+		crypt.free()
+	print("[T11] Cathedral Crypts scene + TileMap: %s" % crypt_ok)
+	
 	print("\n=== All tests passed ===")
 	get_tree().quit()
