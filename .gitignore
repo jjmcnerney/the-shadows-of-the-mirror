@@ -1,0 +1,17 @@
+# Godot 4+ specific ignores
+.godot/
+.import/
+.mono/
+*.tmp
+*.remap
+
+# Godot build/export output
+export/
+builds/
+
+# Local settings
+.gdignore
+
+# OS/editor
+.DS_Store
+Thumbs.db
