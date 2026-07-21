@@ -6,7 +6,7 @@ config_version=5
 
 config/name="The Shadows of the Mirror"
 config/description="A 16-bit action-adventure RPG inspired by The Legend of Zelda: A Link to the Past"
-run/main_scene="res://scenes/main/test_root.tscn"
+run/main_scene="res://scenes/main/main_menu.tscn"
 config/features=PackedStringArray("4.7.1")
 
 [autoload]
@@ -110,3 +110,46 @@ texture_filter/texture_default_filter_hint=0
 aniso_level=0
 anti_aliasing/quality/msaa_2d=2
 
+
+[presets]
+
+preset_0/name="Windows"
+preset_0/platform="Windows Desktop"
+preset_0/runnable=true
+preset_0/custom_features=""
+preset_0/export_filter=""
+preset_0/export_filter/paths=PackedStringArray()
+preset_0/export_exclude=""
+preset_0/export_include=""
+preset_0/export_type="release"
+preset_0/advanced_options=false
+preset_0/script_encryption_key=""
+preset_0/options/architecture="x86_64"
+preset_0/options/build_dotnet_projects=true
+preset_0/options/codesign/enable=false
+preset_0/options/codesign/certificate_path=""
+preset_0/options/codesign/certificate_password=""
+preset_0/options/codesign/digest=0
+preset_0/options/codesign/delay_sign=false
+preset_0/options/codesign/timestamp=true
+preset_0/options/codesign/timestamp_authority=""
+preset_0/options/display/enable=false
+preset_0/options/display/dpi_mode=0
+preset_0/options/display/dpi_use_custom_icon=false
+preset_0/options/display/icon_32=""
+preset_0/options/display/icon_64=""
+preset_0/options/display/icon_128=""
+preset_0/options/display/icon_256=""
+preset_0/options/display/icon_512=""
+preset_0/options/display/icon_1024=""
+preset_0/options/debug/security_enable=false
+preset_0/options/debug/security_enabled=false
+preset_0/options/debug/debugger_enable=false
+preset_0/options/debug/debugger_enabled=false
+preset_0/options/texture/bptc=true
+preset_0/options/texture/vrtc=true
+preset_0/options/texture/vrga=true
+preset_0/options/texture/s3tc=true
+preset_0/options/texture/etc=true
+preset_0/options/texture/pvrt=false
+preset_0/options/icon=""
