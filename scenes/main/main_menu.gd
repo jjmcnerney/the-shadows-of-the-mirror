@@ -20,7 +20,7 @@ func _ready() -> void:
 func _on_new_game() -> void:
 	GameManager.game_running = true
 	GameManager.game_paused = false
-	get_tree().change_scene_to_file("res://scenes/main/test_world.tscn")
+	get_tree().change_scene_to_file("res://scenes/dungeons/cathedral_crypts.tscn")
 
 func _on_load_game() -> void:
 	print("[MainMenu] Load game not yet implemented")
