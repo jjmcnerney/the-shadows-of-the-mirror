@@ -1,5 +1,5 @@
 # Player Controller
-# 8-directional movement, dash, sword combat, spin attack, passive shield block
+# 8-directional movement, dash, sword combat, passive shield block
 
 class_name Player extends CharacterBody2D
 
@@ -16,10 +16,9 @@ const JUMP_ARC_HEIGHT: float = 12.0  # visual Y offset for arc
 
 ## Combat constants
 const SWORD_DAMAGE: int = 1
-const SPIN_ATTACK_DAMAGE: int = 2
-const SPIN_ATTACK_DURATION: float = 0.3
-const CHARGE_TIME: float = 0.4  # time to hold for spin attack
-const INVINCIBILITY_FRAMES: float = 1.0  # frames after taking damage
+const SWING_COOLDOWN: float = 0.3  # min time between sword swings
+const INVINCIBILITY_FRAMES: float = 1.0  # i-frames after taking damage
+const STUN_DURATION: float = 0.5  # hurt/stumble duration (half of i-frames)
 
 ## Player state enum
 enum State {
@@ -28,13 +27,11 @@ enum State {
 	DASHING,
 	JUMPING,
 	ATTACKING,
-	SPIN_ATTACKING,
-	CHARGING,
 	HURT,
 	SWIMMING,
 	CLIMBING,
+	DEAD,
 }
-
 ## Player properties
 @export var walk_speed: float = WALK_SPEED
 @export var dash_speed: float = DASH_SPEED
@@ -53,9 +50,10 @@ var is_dashing: bool = false
 var dash_direction: Vector2 = Vector2.ZERO
 var dash_button_held: bool = false
 
-# Sword charge timer (for spin attack)
+# Sword charge timer (reused by the hurt/invincibility state)
 var sword_charge_timer: float = 0.0
-var is_charging: bool = false
+# Cooldown timer between swings (0 = ready)
+var sword_cooldown: float = 0.0
 
 # Jump state
 var jump_direction: Vector2 = Vector2.ZERO
@@ -65,12 +63,29 @@ var jump_arc_offset: float = 0.0  # visual Y offset for jump arc
 # Invincibility after hurt
 var invincible: bool = false
 var invincibility_timer: float = 0.0
+# Hurt/stumble tracking (separate from i-frames so stun < invuln window)
+var _hurt_timer: float = 0.0
+var _hurt_knockback: Vector2 = Vector2.ZERO
 
 # Animation reference
 var anim_player: AnimationPlayer
 
-# Hitbox for sword
-@onready var sword_hitbox: CollisionShape2D = $SwordHitbox
+# Sprite reference
+@onready var sprite: Sprite2D = $Sprite2D
+
+# Sword hit area (Area2D so it actually detects enemy overlaps)
+@onready var sword_area: Area2D = $SwordArea
+# The actual collision shape inside the area. It is created DISABLED in the
+# .tscn; we enable it only for the duration of a swing and place it in front
+# of the player based on facing direction.
+@onready var sword_hitbox: CollisionShape2D = $SwordArea/SwordHitbox
+# Visible blade shown during a swing (procedural texture, no art asset yet)
+@onready var sword_swing: Sprite2D = $SwordSwing
+# Enemies already struck during the current swing (prevents multi-hit)
+var _hit_this_swing: Array[Node] = []
+
+# Bow projectile scene (spawned on the "bow" action)
+const ARROW_SCENE: PackedScene = preload("res://scenes/items/arrow.tscn")
 
 # Shield visual
 @onready var shield_visual: Sprite2D = $Shield
@@ -80,7 +95,6 @@ var anim_player: AnimationPlayer
 
 ## Signals
 signal attacked(direction: Vector2i, damage: int)
-signal spin_attacked(damage: int)
 signal shot_arrow(direction: Vector2i)
 signal used_item(direction: Vector2i)
 signal hurt(amount: int)
@@ -89,10 +103,40 @@ signal died
 func _ready() -> void:
 	if has_node("AnimationPlayer"):
 		anim_player = $AnimationPlayer
-	
-	# Sword hitbox starts disabled
-	if sword_hitbox:
-		sword_hitbox.disabled = true
+
+	# Ensure the player is discoverable by enemies/AI. The scene's `groups`
+	# declaration is sometimes dropped by the importer in this setup, so we
+	# add it explicitly and defensively.
+	add_to_group("player")
+
+	# Force NEAREST texture filtering on every visual we draw so the camera
+	# zoom + viewport upscale never bilinear-blurs pixel art (the project
+	# default is also Nearest, but we set it explicitly to be bulletproof).
+	_apply_nearest_filter()
+
+	# Top-down game: use FLOATING motion mode so there is no "floor"/"ceiling"
+	# axis and all 4 walls collide symmetrically (no platformer snap that would
+	# misfire on the top/bottom walls).
+	motion_mode = CharacterBody2D.MOTION_MODE_FLOATING
+
+	# Sword area starts disabled (no monitoring until an attack)
+	if sword_area:
+		sword_area.monitoring = false
+		sword_area.body_entered.connect(_on_sword_body_entered)
+		# Track which enemies we've already hit this swing to avoid multi-hits
+		_hit_this_swing.clear()
+	_build_sword_texture()
+
+	# Bow: spawn a real arrow projectile when the player shoots.
+	shot_arrow.connect(_on_shot_arrow)
+
+# Force NEAREST (value 1) texture filtering on the player's sprites. This is the
+# pixel-perfect guarantee: even if a project/import default were ever Linear,
+# these nodes sample with nearest-neighbor so pixel edges stay hard.
+func _apply_nearest_filter() -> void:
+	for sp in [sprite, shield_visual, sword_swing]:
+		if sp != null:
+			sp.texture_filter = 1
 
 func _process(delta: float) -> void:
 	_update_input()
@@ -100,6 +144,10 @@ func _process(delta: float) -> void:
 	_update_facing()
 	_update_invincibility(delta)
 	_update_animation()
+	_update_invincibility_blink()
+	# Tick down the sword swing cooldown.
+	if sword_cooldown > 0.0:
+		sword_cooldown = max(0.0, sword_cooldown - delta)
 
 func _physics_process(delta: float) -> void:
 	_update_velocity(delta)
@@ -114,11 +162,10 @@ func _input(event: InputEvent) -> void:
 	if current_state == State.HURT:
 		return
 	
-	## Sword attack / charge
+	## Sword attack — swing fires on KEY DOWN (press), not release.
+	# A 0.3s cooldown (SWING_COOLDOWN) prevents swing spam.
 	if event.is_action_pressed("attack"):
-		_start_attack_charge()
-	elif event.is_action_released("attack"):
-		_end_attack_charge()
+		_try_swing()
 	
 	## Bow shot
 	if event.is_action_pressed("bow"):
@@ -146,9 +193,15 @@ func _update_input() -> void:
 # ---------- State Management ----------
 
 func _handle_state(delta: float) -> void:
-	if invincible and current_state != State.HURT:
+	if current_state == State.DEAD:
+		velocity = Vector2.ZERO
 		return
-	
+
+	# NOTE: We deliberately do NOT freeze on `invincible` here. The stun is the
+	# HURT state only (ends at STUN_DURATION). After the stun ends the player
+	# regains full control even though i-frames (invincible) may still be
+	# active — they just can't take damage. Damage immunity is enforced in
+	# take_damage(), not by freezing movement here.
 	match current_state:
 		State.IDLE, State.WALKING:
 			_handle_movement_state(delta)
@@ -158,18 +211,16 @@ func _handle_state(delta: float) -> void:
 			_handle_jump_state(delta)
 		State.ATTACKING:
 			_handle_attack_state(delta)
-		State.SPIN_ATTACKING:
-			_handle_spin_attack_state(delta)
-		State.CHARGING:
-			_handle_charging_state(delta)
 		State.HURT:
 			_handle_hurt_state(delta)
 
 func _handle_movement_state(delta: float) -> void:
 	var speed: float = walk_speed
 	
-	# Check if dashing
-	if Input.is_action_just_pressed("interact") and not is_dashing:
+	# Dash is gated behind the Pegasus Boots (not yet obtainable in the Phase 1
+	# demo), so Space currently does nothing — this keeps "basic collision"
+	# testing clean until the boots are introduced.
+	if Input.is_action_just_pressed("interact") and GameManager.has_key_item("pegasus_boots") and not is_dashing:
 		_start_dash()
 		return
 	
@@ -190,13 +241,14 @@ func _handle_movement_state(delta: float) -> void:
 func _handle_dash_state(delta: float) -> void:
 	var target_velocity: Vector2 = dash_direction * dash_speed
 	velocity = target_velocity
-	
-	# Jump if dashing off an edge (over a gap) — contextual jump per §6.2
-	if not is_on_floor():
-		_start_jump(dash_direction)
-		return
-	
-	# Dash ends when player stops holding or hits terrain (handled in collision)
+
+	# Contextual jump (dashing off a ledge) is disabled for now. This is a
+	# top-down dungeon with solid floor everywhere and up_direction = ZERO, so
+	# the old "if not is_on_floor()" check fired on EVERY dash (is_on_floor is
+	# always false). Re-enable once a gap/ledge system exists (see §6.2).
+
+	# Dash ends when the player releases the button; hitting a wall ends it in
+	# _move_and_collide().
 	if not Input.is_action_pressed("interact"):
 		_end_dash()
 
@@ -237,27 +289,20 @@ func _handle_attack_state(delta: float) -> void:
 	previous_state = current_state
 	current_state = previous_state
 
-func _handle_spin_attack_state(delta: float) -> void:
-	# Spin attack lasts for SPIN_ATTACK_DURATION seconds
-	sword_charge_timer -= delta
-	if sword_charge_timer <= 0:
-		_deactivate_sword()
-		previous_state = current_state
-		current_state = State.IDLE
-
-func _handle_charging_state(delta: float) -> void:
-	sword_charge_timer += delta
-	# If charge time exceeded, trigger spin attack
-	if sword_charge_timer >= CHARGE_TIME:
-		_perform_spin_attack()
-
 func _handle_hurt_state(delta: float) -> void:
-	sword_charge_timer += delta
-	if sword_charge_timer >= INVINCIBILITY_FRAMES:
-		invincible = false
-		sword_charge_timer = 0.0
-		previous_state = current_state
+	# Stumble: a short, slow drift in the knockback direction. The player's
+	# prior momentum was cancelled the instant damage was taken (see
+	# take_damage), so this is a fresh, slow push — not preserved velocity.
+	var stumble_speed: float = WALK_SPEED * 0.35
+	velocity = _hurt_knockback * stumble_speed
+
+	# i-frames keep running for the full INVINCIBILITY_FRAMES; the stun (and
+	# the stumble movement) ends earlier at STUN_DURATION.
+	_hurt_timer += delta
+	if _hurt_timer >= STUN_DURATION:
 		current_state = State.IDLE
+		velocity = Vector2.ZERO
+		_hurt_knockback = Vector2.ZERO
 
 # ---------- Dash ----------
 
@@ -277,38 +322,34 @@ func _end_dash() -> void:
 
 # ---------- Combat ----------
 
-func _start_attack_charge() -> void:
-	if current_state == State.HURT or invincible:
+# Swing on key-down. Blocked only during the stun (HURT state); i-frames after
+# the stun end DO still allow acting — they only protect from damage.
+func _try_swing() -> void:
+	if current_state == State.HURT:
 		return
-	
+	if sword_cooldown > 0.0:
+		return  # on cooldown — ignore
+
 	if current_state == State.DASHING:
 		# Tap sword while dashing — single slash in dash direction
 		_perform_single_attack(dash_direction)
 		return
-	
-	is_charging = true
-	sword_charge_timer = 0.0
-	current_state = State.CHARGING
 
-func _end_attack_charge() -> void:
-	if not is_charging:
-		return
-	
-	is_charging = false
-	
-	if current_state == State.CHARGING:
-		# Released before charge time — single slash
-		_perform_single_attack(facing)
-		current_state = State.IDLE
-		sword_charge_timer = 0.0
+	# Immediate single swing on press.
+	_perform_single_attack(facing)
 
 func _perform_single_attack(direction: Vector2i) -> void:
 	if direction == Vector2i.ZERO:
 		direction = facing
-	
+
 	facing = direction
 	_activate_sword(direction)
 	attacked.emit(facing, GameManager.get_sword_damage())
+
+	# Start the swing cooldown so swings can't be spammed.
+	sword_cooldown = SWING_COOLDOWN
+
+	AudioManager.play_sfx_named("sword_slash", global_position)
 	
 	# Brief attack animation
 	if anim_player and anim_player.has_animation("attack_%s" % _direction_string(facing)):
@@ -318,59 +359,121 @@ func _perform_single_attack(direction: Vector2i) -> void:
 	await get_tree().create_timer(0.15).timeout
 	_deactivate_sword()
 
-func _perform_spin_attack() -> void:
-	is_charging = false
-	sword_charge_timer = SPIN_ATTACK_DURATION
-	current_state = State.SPIN_ATTACKING
-	
-	# Full 360 hitbox — activate for duration
-	_activate_sword_360()
-	spin_attacked.emit(GameManager.get_sword_damage() + 1)  # +1 for spin
-	
-	if anim_player and anim_player.has_animation("spin_attack"):
-		anim_player.play("spin_attack")
-
 func _activate_sword(direction: Vector2i) -> void:
-	if sword_hitbox:
-		sword_hitbox.disabled = false
-		# Position and rotate hitbox
-		match direction:
-			Vector2i.RIGHT:
-				$SwordHitbox.position = Vector2(TILE_SIZE, 0)
-				$SwordHitbox.rotation = 0
-			Vector2i.LEFT:
-				$SwordHitbox.position = Vector2(-TILE_SIZE, 0)
-				$SwordHitbox.rotation = PI
-			Vector2i.UP:
-				$SwordHitbox.position = Vector2(0, -TILE_SIZE)
-				$SwordHitbox.rotation = -PI / 2
-			Vector2i.DOWN:
-				$SwordHitbox.position = Vector2(0, TILE_SIZE)
-				$SwordHitbox.rotation = PI / 2
-
-func _activate_sword_360() -> void:
-	# For now, activate all 4 directions
-	if sword_hitbox:
-		sword_hitbox.disabled = false
-		$SwordHitbox.position = Vector2.ZERO
-		$SwordHitbox.rotation = 0
+	_hit_this_swing.clear()
+	_position_sword_hitbox(direction)
+	if sword_area:
+		sword_area.monitoring = true
+		# Immediately hit anything already overlapping (don't depend solely on
+		# the body_entered signal, which fires on the next physics frame).
+		for b in sword_area.get_overlapping_bodies():
+			_try_hit(b)
+	# Position + show the visible blade in front of the player
+	_show_sword_swing(direction)
 
 func _deactivate_sword() -> void:
+	if sword_area:
+		sword_area.monitoring = false
 	if sword_hitbox:
 		sword_hitbox.disabled = true
+	if sword_swing:
+		sword_swing.visible = false
+
+# Place the (disabled-by-default) sword hitbox in front of the player based on
+# the swing direction so it actually intersects whatever the player is facing.
+func _position_sword_hitbox(direction: Vector2i) -> void:
+	if sword_hitbox == null:
+		return
+	sword_hitbox.disabled = false
+	match direction:
+		Vector2i.RIGHT:
+			sword_hitbox.position = Vector2(TILE_SIZE, 0)
+			sword_hitbox.rotation = 0
+		Vector2i.LEFT:
+			sword_hitbox.position = Vector2(-TILE_SIZE, 0)
+			sword_hitbox.rotation = 0
+		Vector2i.UP:
+			sword_hitbox.position = Vector2(0, -TILE_SIZE)
+			sword_hitbox.rotation = 0
+		Vector2i.DOWN:
+			sword_hitbox.position = Vector2(0, TILE_SIZE)
+			sword_hitbox.rotation = 0
+		_:
+			sword_hitbox.position = Vector2(TILE_SIZE, 0)
+			sword_hitbox.rotation = 0
+
+# Apply sword damage to a body if it's an enemy we haven't hit this swing.
+func _try_hit(body: Node) -> void:
+	if body == self:
+		return
+	if body is Enemy and not (body in _hit_this_swing):
+		_hit_this_swing.append(body)
+		var dmg := GameManager.get_sword_damage()
+		var dir := Vector2i(signi(body.global_position.x - global_position.x),
+		                    signi(body.global_position.y - global_position.y))
+		body.take_damage(dmg, dir)
+
+func _show_sword_swing(direction: Vector2i) -> void:
+	if sword_swing == null:
+		return
+	sword_swing.visible = true
+	sword_swing.texture = _sword_texture
+	match direction:
+		Vector2i.RIGHT:
+			sword_swing.position = Vector2(TILE_SIZE, 0)
+			sword_swing.rotation = 0
+		Vector2i.LEFT:
+			sword_swing.position = Vector2(-TILE_SIZE, 0)
+			sword_swing.rotation = 0
+		Vector2i.UP:
+			sword_swing.position = Vector2(0, -TILE_SIZE)
+			sword_swing.rotation = -PI / 2
+		Vector2i.DOWN:
+			sword_swing.position = Vector2(0, TILE_SIZE)
+			sword_swing.rotation = -PI / 2
+		_:
+			sword_swing.position = Vector2(TILE_SIZE, 0)
+			sword_swing.rotation = 0
+
+# Called by SwordArea.body_entered on subsequent overlaps during the swing.
+func _on_sword_body_entered(body: Node) -> void:
+	_try_hit(body)
+
+# Procedurally build a tiny blade texture so the swing is visible without art.
+var _sword_texture: Texture2D = null
+func _build_sword_texture() -> void:
+	if _sword_texture != null:
+		return
+	var img := Image.create(14, 6, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0.85, 0.85, 0.9, 1.0))            # blade (light steel)
+	# hilt
+	for x in range(14):
+		img.set_pixel(x, 0, Color(0.55, 0.4, 0.2, 1.0))
+		img.set_pixel(x, 5, Color(0.55, 0.4, 0.2, 1.0))
+	var tex := ImageTexture.create_from_image(img)
+	tex.resource_local_to_scene = true
+	_sword_texture = tex
 
 func _shoot_arrow() -> void:
-	# Bow shot in facing direction — cardinal only
-	# Requires Bow key item
+	# Bow shot in facing direction — cardinal only. Requires Bow key item and
+	# at least one arrow in the quiver.
 	if not GameManager.has_key_item("bow"):
 		return
-	if GameManager.consumables.get("arrows", 0) <= 0:
+	if not GameManager.consume_consumable("arrows", 1):
 		return
-	
-	GameManager.consumables["arrows"] -= 1
-	
-	# Emit signal for arrow spawning — cardinal direction only
-	shot_arrow.emit(facing)
+
+	# Spawn the actual projectile (off-tree scene, reparented into the world).
+	var arrow: Node2D = ARROW_SCENE.instantiate()
+	arrow.setup(facing, global_position + Vector2(facing) * 12.0)
+	get_parent().add_child(arrow)
+
+	AudioManager.play_sfx_named("bow_twang", global_position)
+
+# Spawned by the `shot_arrow` signal — kept so other systems (e.g. the HUD)
+# can react to bow fire if needed. The projectile itself is spawned in
+# _shoot_arrow above.
+func _on_shot_arrow(_direction: Vector2i) -> void:
+	pass
 
 func _use_item() -> void:
 	# Use equipped item in facing direction — cardinal only
@@ -391,31 +494,15 @@ func _update_velocity(delta: float) -> void:
 
 func _move_and_collide() -> void:
 	move_and_slide()
-	
-	# Handle X-axis collision
-	var collision_count: int = get_slide_collision_count()
-	for i in range(collision_count):
-		var collision = get_slide_collision(i)
-		var normal: Vector2 = collision.get_normal()
-		if abs(normal.x) > 0.5:
-			# X-axis hit — stop horizontal movement
-			velocity.x = 0
-			if is_dashing:
-				_end_dash()
-			break
-	
-	# Handle Y-axis collision — snap to tile grid
-	if is_on_floor():
-		# Snap feet to tile top
-		var tile_y: int = int(ceilf(position.y / float(TILE_SIZE)))
-		position.y = float(tile_y) * float(TILE_SIZE)
-	
-	if is_on_ceiling():
-		# Snap head to tile bottom
-		var head_y: float = position.y + float(TILE_SIZE)
-		var tile_y: int = int(floorf(head_y / float(TILE_SIZE)))
-		position.y = float(tile_y + 1) * float(TILE_SIZE) - float(TILE_SIZE)
-	
+
+	# Top-down movement: move_and_slide() stops the player cleanly against any
+	# wall (left/right/top/bottom) and zeroes the blocked velocity component on
+	# its own. No grid-snapping is needed — the old vertical snap teleported
+	# position.y and caused the rubbery top wall / clip-into-bottom-wall bug.
+	# End a dash if we hit a wall (any axis).
+	if is_dashing and get_slide_collision_count() > 0:
+		_end_dash()
+
 	# Apply jump arc visual offset to sprite (doesn't affect physics position)
 	if has_node("Sprite2D"):
 		$Sprite2D.position.y = -jump_arc_offset
@@ -455,14 +542,22 @@ func take_damage(amount: int, from_direction: Vector2i) -> void:
 	GameManager.player_health -= amount
 	invincible = true
 	invincibility_timer = INVINCIBILITY_FRAMES
-	sword_charge_timer = 0.0
+	# Cancel any momentum the player had — the hurt response starts from a
+	# standstill, then plays a short slow stumble (see _handle_hurt_state).
+	velocity = Vector2.ZERO
+	_hurt_timer = 0.0
+	_hurt_knockback = Vector2(from_direction)
 	current_state = State.HURT
 	hurt.emit(amount)
+	
+	AudioManager.play_sfx_named("player_hurt", global_position)
 	
 	if anim_player and anim_player.has_animation("hurt"):
 		anim_player.play("hurt")
 	
 	if GameManager.player_health <= 0:
+		current_state = State.DEAD
+		velocity = Vector2.ZERO
 		died.emit()
 		GameManager.game_over.emit()
 
@@ -486,6 +581,21 @@ func _update_invincibility(delta: float) -> void:
 		if invincibility_timer <= 0:
 			invincible = false
 
+# Strobe the player's visuals while invulnerable so the i-frame window is
+# clearly visible. A hard on/off blink (not a smooth fade) reads as "flashing".
+func _update_invincibility_blink() -> void:
+	if sprite == null:
+		return
+	var alpha := 1.0
+	if invincible:
+		# ~8 Hz strobe: on for first half of each 0.12s period.
+		alpha = 1.0 if fmod(Time.get_ticks_msec() / 1000.0, 0.12) < 0.06 else 0.25
+	sprite.modulate.a = alpha
+	if shield_visual != null:
+		shield_visual.modulate.a = alpha
+	if sword_swing != null:
+		sword_swing.modulate.a = alpha
+
 func _update_animation() -> void:
 	if anim_player == null:
 		return
@@ -501,6 +611,10 @@ func _update_animation() -> void:
 			anim_player.play("jump")
 		State.HURT:
 			anim_player.play("hurt")
+	
+	# Flip sprite to match horizontal facing direction
+	if sprite != null:
+		sprite.scale.x = -1 if facing.x < 0 else 1
 
 static func _direction_string(dir: Vector2i) -> String:
 	match dir:

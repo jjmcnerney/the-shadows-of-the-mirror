@@ -19,18 +19,30 @@ var game_paused: bool = false
 var game_running: bool = false
 
 ## Player stats
-var player_health: int = 4
-var player_max_health: int = 4
+var player_health: int = 4:
+	set(v):
+		player_health = v
+		player_health_changed.emit(v)
+var player_max_health: int = 4:
+	set(v):
+		player_max_health = v
+		player_health_changed.emit(v)
 var player_magic: float = 0.0
 var player_max_magic: float = 100.0
 var player_magic_regen_rate: float = 5.0  # per second
+
+## Live enemy count (debug HUD). Set via set_enemy_count().
+var enemy_count: int = 0:
+	set(v):
+		enemy_count = v
+		enemy_count_changed.emit(v)
 
 ## Inventory tracking
 var key_items: Array[String] = []
 var consumables: Dictionary = {
 	"rupees": 0,
-	"bombs": 20,
-	"arrows": 20,
+	"bombs": 0,
+	"arrows": 0,
 	"fairies": 0,
 	"potions": 0,
 }
@@ -56,8 +68,11 @@ signal load_game(slot: int)
 signal game_over
 signal dungeon_completed(dungeon_id: int)
 signal key_item_acquired(item_name: String)
+signal consumable_changed(item_id: String, amount: int)
 signal player_hurt(amount: int)
 signal player_healed(amount: int)
+signal player_health_changed(health: int)
+signal enemy_count_changed(count: int)
 signal area_entered(area_name: String)
 
 func _ready() -> void:
@@ -208,6 +223,29 @@ func add_heart_piece() -> void:
 	# Every 4 pieces = 1 heart container
 	if heart_pieces_collected % 4 == 0:
 		add_heart_container()
+
+# ---------- Inventory: consumables ----------
+
+func add_consumable(item_id: String, amount: int = 1) -> void:
+	consumables[item_id] = consumables.get(item_id, 0) + amount
+	consumable_changed.emit(item_id, consumables[item_id])
+
+func get_consumable(item_id: String) -> int:
+	return consumables.get(item_id, 0)
+
+func consume_consumable(item_id: String, amount: int = 1) -> bool:
+	var have: int = consumables.get(item_id, 0)
+	if have < amount:
+		return false
+	consumables[item_id] = have - amount
+	consumable_changed.emit(item_id, consumables[item_id])
+	return true
+
+# Heal the player by `amount` HP (half-heart units), capped at max.
+func heal(amount: int) -> void:
+	player_health = min(player_health + amount, player_max_health)
+	player_healed.emit(amount)
+	player_health_changed.emit(player_health)
 
 # ---------- Combat helpers ----------
 

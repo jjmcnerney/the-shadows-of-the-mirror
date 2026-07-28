@@ -6,12 +6,25 @@ extends Node
 const MUSIC_BUS := "Music"
 const SFX_BUS := "SFX"
 
-## Placeholder music tracks (Phase 1)
-## Tracks A/B are 30s placeholder loops uploaded by the team.
-## Map theme names -> res paths. Replace with composed themes in Phase 3 (T3.8.1).
+## Music tracks (Phase 1 — 3 themes)
+## Replace placeholder paths with composed themes in Phase 3 (T3.8.1).
 const MUSIC_TRACKS := {
-	"overworld_placeholder": "res://assets/audio/music/placeholder_track_a.mp3",
-	"dungeon_placeholder": "res://assets/audio/music/placeholder_track_b.mp3",
+	"overworld_placeholder": "res://assets/audio/music/placeholder_track_b.mp3",
+	"dungeon_placeholder": "res://assets/audio/music/placeholder_track_a.mp3",
+	"mountain": "res://assets/audio/music/Mountain.mp3",
+}
+
+## Sound effects registry
+## Map action names -> res paths. Use play_sfx_named() for typed access.
+const SFX_TRACKS := {
+	"sword_slash": "res://assets/audio/sfx/sword_swish.ogg",
+	"charge_spin": "res://assets/audio/sfx/charge_spin.ogg",
+	"bow_twang": "res://assets/audio/sfx/bow_twang.ogg",
+	"enemy_hurt": "res://assets/audio/sfx/enemy_hurt.ogg",
+	"player_hurt": "res://assets/audio/sfx/player_hurt.ogg",
+	"boss_hurt": "res://assets/audio/sfx/boss_hurt.ogg",
+	"item_get": "res://assets/audio/sfx/item_get.wav",
+	"error": "res://assets/audio/sfx/error.ogg",
 }
 
 var music_player: AudioStreamPlayer = null
@@ -113,6 +126,13 @@ func play_sfx(stream_path: String, position: Vector2 = Vector2.ZERO, volume: flo
 		first_sfx.position = position
 		first_sfx.volume_db = volume
 		first_sfx.play()
+
+## Play a registered SFX by name (see SFX_TRACKS)
+func play_sfx_named(sfx_name: String, position: Vector2 = Vector2.ZERO, volume: float = 0.0) -> void:
+	if not SFX_TRACKS.has(sfx_name):
+		printerr("[AudioManager] Unknown SFX: %s" % sfx_name)
+		return
+	play_sfx(SFX_TRACKS[sfx_name], position, volume)
 
 # ---------- Volume Control ----------
 

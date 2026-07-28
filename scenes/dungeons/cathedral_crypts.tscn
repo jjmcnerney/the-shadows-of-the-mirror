@@ -2,7 +2,15 @@
 
 [ext_resource type="Script" path="res://scenes/dungeons/cathedral_crypts.gd" id="1_script"]
 
+[sub_resource type="Environment" id="env_dungeon"]
+ambient_light_source = 3
+background_mode = 1
+background_color = Color(0.04, 0.04, 0.06, 1)
+
 [node name="CathedralCrypts" type="Node2D"]
 script = ExtResource("1_script")
 
 [node name="TileMap" type="TileMap" parent="."]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env_dungeon")
