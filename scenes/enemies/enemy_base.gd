@@ -22,13 +22,14 @@ enum State {
 @export var aggro_radius: float = 80.0
 @export var attack_radius: float = 24.0
 @export var contact_damage: int = 1
+@export var is_boss: bool = false  # uses boss_hurt SFX instead of enemy_hurt
 
 ## AI state
 var current_state: State = State.PATROL
 var previous_state: State = State.PATROL
 
 ## References
-var player_ref: Player = null
+var player_ref: Node = null
 @onready var sprite: Sprite2D = $Sprite2D
 
 ## Patrol path (array of Vector2 world positions)
@@ -52,15 +53,42 @@ signal died(enemy: Enemy)
 signal attacked(enemy: Enemy, damage: int)
 
 func _ready() -> void:
-	# Find player reference
-	var players := get_tree().get_nodes_in_group("player")
-	if players.size() > 0:
-		player_ref = players[0] as Player
+	# Pixel-perfect: force NEAREST filtering on the enemy sprite regardless of
+	# any project/import default.
+	if sprite != null:
+		sprite.texture_filter = 1
+	# Find player reference. Use get_first_node_in_group (not a `as Player` cast,
+	# which fails to resolve at load time due to circular class loading) and
+	# retry each frame in case the player spawns after this enemy.
+	player_ref = get_tree().get_first_node_in_group("player")
 
 func _physics_process(delta: float) -> void:
+	if player_ref == null:
+		player_ref = get_tree().get_first_node_in_group("player")
 	_update_ai(delta)
 	_apply_knockback(delta)
 	move_and_slide()
+	_check_contact_damage()
+
+# CharacterBody2D has no body_entered signal; detect player overlap via the
+# slide collisions produced by move_and_slide().
+func _check_contact_damage() -> void:
+	for i in range(get_slide_collision_count()):
+		var c := get_slide_collision(i)
+		var other: Node = c.get_collider()
+		if other != null and other.is_in_group("player") and current_state != State.DEAD:
+			var dir := Vector2i(signi(other.global_position.x - global_position.x), 0)
+			if other.has_method("take_damage"):
+				other.take_damage(contact_damage, dir)
+			# Brief cooldown so we don't apply every frame.
+			current_state = State.STUNNED
+			stun_timer = 0.5
+			# Nudge away from the player so the two bodies don't glue together
+			# (both are dynamic; without this they cling when overlapping).
+			var away: Vector2 = global_position - other.global_position
+			if away.length() > 0.1:
+				global_position += away.normalized() * 3.0
+			break
 
 func _update_ai(delta: float) -> void:
 	match current_state:
@@ -80,14 +108,14 @@ func _update_ai(delta: float) -> void:
 			pass
 
 func _handle_patrol(delta: float) -> void:
-	if player_ref == null:
-		return
-	
-	var dist_to_player: float = global_position.distance_to(player_ref.global_position)
-	if dist_to_player <= aggro_radius:
-		_enter_alert()
-		return
-	
+	# Patrol regardless of whether the player has been located yet, so enemies
+	# always move. (player_ref may still be null on the very first frames.)
+	if player_ref != null:
+		var dist_to_player: float = global_position.distance_to(player_ref.global_position)
+		if dist_to_player <= aggro_radius:
+			_enter_alert()
+			return
+
 	# Move along patrol path
 	if patrol_points.size() > 0:
 		var target: Vector2 = patrol_points[patrol_index]
@@ -180,6 +208,12 @@ func take_damage(amount: int, from_direction: Vector2i, knockback: float = 100.0
 	# Flash white (placeholder — needs actual animation)
 	if sprite and sprite.material is ShaderMaterial:
 		pass  # would set shader uniform here
+	
+	# Play hurt SFX (boss or regular enemy)
+	if is_boss:
+		AudioManager.play_sfx_named("boss_hurt", global_position)
+	else:
+		AudioManager.play_sfx_named("enemy_hurt", global_position)
 	
 	if health <= 0:
 		_die()

@@ -15,6 +15,9 @@ extends Area2D
 var player_inside: bool = false
 
 func _ready() -> void:
+	# Pixel-perfect: force NEAREST filtering on the save point sprite.
+	if sprite != null:
+		sprite.texture_filter = 1
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
 	if prompt:
