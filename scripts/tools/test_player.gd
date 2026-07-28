@@ -84,6 +84,16 @@ func _run_tests() -> void:
 			print("[T10] FAIL: cannot load %s at %s" % [theme, path])
 			music_ok = false
 	print("[T10a] All music tracks load: %s" % music_ok)
+
+	# Test 10b: SFX tracks registered + loadable
+	var sfx_ok: bool = true
+	for sfx_name in AudioManager.SFX_TRACKS.keys():
+		var sfx_path: String = AudioManager.SFX_TRACKS[sfx_name]
+		var sfx_stream: AudioStream = load(sfx_path)
+		if sfx_stream == null:
+			print("[T10b] FAIL: cannot load SFX %s at %s" % [sfx_name, sfx_path])
+			sfx_ok = false
+	print("[T10b] Registered SFX: %d, all load: %s" % [AudioManager.SFX_TRACKS.keys().size(), sfx_ok])
 	
 	# Test 11: Cathedral Crypts dungeon scene loads + builds off-tree
 	var crypt_scene: PackedScene = load("res://scenes/dungeons/cathedral_crypts.tscn")
@@ -113,5 +123,38 @@ func _run_tests() -> void:
 		sp_ok = false
 	print("[T12] SavePoint scene + GameManager.save: %s (err=%d, slot0=%s)" % [sp_ok, err, after_has])
 	
+	# Test 13: Pickup scene grants the correct item + (for the bow) arrows.
+	var pickup_scene: PackedScene = load("res://scenes/items/pickup.tscn")
+	var p_ok: bool = pickup_scene != null
+	if p_ok:
+		var pk: Node = pickup_scene.instantiate()
+		pk.kind = Pickup.Kind.KEY_ITEM
+		pk.item_id = "bow"
+		pk.amount = 10
+		pk._acquire()  # simulate walking into it
+		pk.queue_free()
+		var bow_ok: bool = GameManager.has_key_item("bow")
+		var arrows_ok: bool = GameManager.get_consumable("arrows") >= 10
+		p_ok = bow_ok and arrows_ok
+	print("[T13] Pickup (bow) grants bow + arrows: %s (bow=%s, arrows=%d)" % [p_ok, GameManager.has_key_item("bow"), GameManager.get_consumable("arrows")])
+
+	# Test 14: Arrow projectile deals damage to an enemy on contact.
+	var arrow_scene: PackedScene = load("res://scenes/items/arrow.tscn")
+	var enemy_scene: PackedScene = load("res://scenes/enemies/octorok.tscn")
+	var a_ok: bool = arrow_scene != null and enemy_scene != null
+	var hp_before: int = -1
+	var hp_after: int = -1
+	if a_ok:
+		var enemy: Node = enemy_scene.instantiate()
+		hp_before = enemy.health if "health" in enemy else -1
+		var arrow: Node = arrow_scene.instantiate()
+		arrow.setup(Vector2i.RIGHT, Vector2.ZERO)
+		arrow._on_body_entered(enemy)  # simulate collision
+		hp_after = enemy.health if "health" in enemy else -1
+		a_ok = hp_after == hp_before - 1
+		enemy.queue_free()
+		arrow.queue_free()
+	print("[T14] Arrow damages enemy on contact: %s (hp %d -> %d)" % [a_ok, hp_before, hp_after])
+
 	print("\n=== All tests passed ===")
 	get_tree().quit()
