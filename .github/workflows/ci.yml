@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    name: Headless test harness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Godot 4.7.1
+        run: |
+          mkdir -p ~/.local/bin
+          curl -fsSL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.7.1/Godot_v4.7.1-stable_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          install -m 0755 /tmp/godot/Godot_v4.7.1-stable_linux.x86_64 ~/.local/bin/godot
+          godot --version
+
+      - name: Run headless test harness
+        run: |
+          set -o pipefail
+          timeout 180 godot --headless --path . res://scenes/main/test_root.tscn 2>&1 | tee /tmp/test.log
+          echo "=== HARVEST OUTPUT ==="
+          cat /tmp/test.log
+          if grep -q "=== All tests passed ===" /tmp/test.log; then
+            echo "TESTS_PASSED=true" >> $GITHUB_ENV
+          else
+            echo "TESTS_PASSED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Verify test result
+        if: env.TESTS_PASSED != 'true'
+        run: |
+          echo "::error::Test harness did not print '=== All tests passed ==='"
+          exit 1
+
+  export-windows:
+    name: Windows export smoke test
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Godot 4.7.1
+        run: |
+          mkdir -p ~/.local/bin
+          curl -fsSL -o /tmp/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/4.7.1/Godot_v4.7.1-stable_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          install -m 0755 /tmp/godot/Godot_v4.7.1-stable_linux.x86_64 ~/.local/bin/godot
+
+      - name: Export Windows (headless)
+        run: |
+          mkdir -p export
+          godot --headless --path . --export-release "Windows" export/shadows_of_the_mirror.exe
+          ls -la export/
