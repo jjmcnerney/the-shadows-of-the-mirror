@@ -32,6 +32,7 @@ const TILE := 16
 const ENEMY_SCENES := {
 	"octorok": preload("res://scenes/enemies/octorok.tscn"),
 	"moblin": preload("res://scenes/enemies/moblin.tscn"),
+	"stalfos": preload("res://scenes/enemies/stalfos.tscn"),
 }
 const PICKUP_SCENE: PackedScene = preload("res://scenes/items/pickup.tscn")
 const PickupScript := preload("res://scenes/items/pickup.gd")
@@ -185,6 +186,8 @@ func _spawn_baseline_enemies() -> void:
 	for i in range(spots.size()):
 		var kind := "octorok" if i % 2 == 0 else "moblin"
 		_spawn_enemy(kind, spots[i])
+	# Stalfos miniboss guards the Bomb Bag chamber (right room, row 3).
+	_spawn_enemy("stalfos", Vector2i(13, 3))
 
 # Gate criterion 8 stress test: F9 drops a 20-enemy batch (on top of baseline)
 # so you can eyeball 60fps with 20+ sprites. Spawns them in a ring AROUND the

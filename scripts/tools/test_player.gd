@@ -156,5 +156,33 @@ func _run_tests() -> void:
 		arrow.queue_free()
 	print("[T14] Arrow damages enemy on contact: %s (hp %d -> %d)" % [a_ok, hp_before, hp_after])
 
+	# Test 15: Stalfos reassembles after knockdown instead of dying (lives>1).
+	var stalfos_scene: PackedScene = load("res://scenes/enemies/stalfos.tscn")
+	var StalfosScript := preload("res://scenes/enemies/stalfos.gd")
+	var s_ok: bool = stalfos_scene != null
+	var reassembled: bool = false
+	var truly_died: bool = false
+	if s_ok:
+		var s: Node = stalfos_scene.instantiate()  # Stalfos class
+		# 3 starting health; lives=3 means it must be knocked down 4 times.
+		s.take_damage(3, Vector2i.LEFT)              # lethal -> shatter (DOWN)
+		var down_after_first: bool = (s.get("stalfos_state") == StalfosScript.StalfosState.DOWN)
+		# Simulate the reassemble timer elapsing.
+		s._handle_down(3.0)
+		var up_after_timer: bool = (s.get("stalfos_state") == StalfosScript.StalfosState.UP)
+		reassembled = down_after_first and up_after_timer
+		# Now kill it `lives` more times to exhaust reassemblies.
+		var died_signal_fired: bool = false
+		s.died.connect(func(_e): died_signal_fired = true)
+		for i in range(s.get("lives") + 1):
+			s.invincible = false
+			s._invuln_timer = 0.0
+			s.take_damage(99, Vector2i.LEFT)
+			if s.get("stalfos_state") == StalfosScript.StalfosState.DOWN:
+				s._handle_down(3.0)  # reassemble between knockdowns
+		truly_died = died_signal_fired or s.get("current_state") == Enemy.State.DEAD
+		s.queue_free()
+	print("[T15] Stalfos reassembles (DOWN->UP) then dies after lives exhausted: %s (reassembled=%s, died=%s)" % [s_ok and reassembled and truly_died, reassembled, truly_died])
+
 	print("\n=== All tests passed ===")
 	get_tree().quit()
