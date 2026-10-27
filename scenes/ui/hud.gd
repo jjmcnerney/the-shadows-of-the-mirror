@@ -8,6 +8,7 @@ extends CanvasLayer
 @onready var enemy_label: Label = $Margin/VBox/EnemyCount
 @onready var arrow_label: Label = $Margin/VBox/ArrowLabel
 @onready var rupee_label: Label = $Margin/VBox/RupeeLabel
+@onready var bomb_label: Label = $Margin/VBox/BombLabel
 
 const HEART_SIZE := 16
 
@@ -43,6 +44,8 @@ func _update_ammo() -> void:
 		arrow_label.text = "Arrows: %d" % GameManager.get_consumable("arrows")
 	if rupee_label:
 		rupee_label.text = "Rupees: %d" % GameManager.get_consumable("rupees")
+	if bomb_label:
+		bomb_label.text = "Bombs: %d" % GameManager.get_consumable("bombs")
 
 func _refresh() -> void:
 	if heart_container == null:

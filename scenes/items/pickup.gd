@@ -37,6 +37,9 @@ func _acquire() -> void:
 			if item_id == "bow":
 				# The Bow always comes with a starter quiver.
 				GameManager.add_consumable("arrows", amount if amount > 0 else 10)
+			elif item_id == "bomb_bag":
+				# The Bomb Bag always comes with a starter stock (plan T2.2.3: 20 bombs).
+				GameManager.add_consumable("bombs", amount if amount > 0 else 20)
 		Kind.CONSUMABLE:
 			GameManager.add_consumable(item_id, amount)
 		Kind.HEART_PIECE:

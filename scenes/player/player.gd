@@ -86,6 +86,7 @@ var _hit_this_swing: Array[Node] = []
 
 # Bow projectile scene (spawned on the "bow" action)
 const ARROW_SCENE: PackedScene = preload("res://scenes/items/arrow.tscn")
+const BOMB_SCENE: PackedScene = preload("res://scenes/items/bomb.tscn")
 
 # Shield visual
 @onready var shield_visual: Sprite2D = $Shield
@@ -476,12 +477,27 @@ func _on_shot_arrow(_direction: Vector2i) -> void:
 	pass
 
 func _use_item() -> void:
-	# Use equipped item in facing direction — cardinal only
-	# Placeholder: will be wired to inventory system
-	if not GameManager.has_equipped_item():
+	# Use the held item in the facing direction — cardinal only.
+	# The Bomb Bag is currently the only usable item: it drops a bomb one tile
+	# ahead in the facing direction, spending one bomb from the bag.
+	if facing.x != 0 and facing.y != 0:
+		return  # cardinal directions only
+	if GameManager.has_key_item("bomb_bag") and GameManager.get_consumable("bombs") > 0:
+		_place_bomb()
+		used_item.emit(facing)
 		return
-	
-	used_item.emit(facing)
+	if GameManager.has_equipped_item():
+		# Placeholder for future equippable items.
+		used_item.emit(facing)
+
+func _place_bomb() -> void:
+	# Drop a bomb one tile ahead; consume one from the bag. The bomb's own fuse
+	# and blast are handled by the Bomb scene (see scenes/items/bomb.gd).
+	if not GameManager.consume_consumable("bombs", 1):
+		return
+	var bomb: Node2D = BOMB_SCENE.instantiate()
+	bomb.setup(global_position + Vector2(facing) * 14.0)
+	get_parent().add_child(bomb)
 
 # ---------- Collision & Movement ----------
 
