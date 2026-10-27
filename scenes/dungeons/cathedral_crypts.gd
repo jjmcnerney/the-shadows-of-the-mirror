@@ -35,6 +35,7 @@ const ENEMY_SCENES := {
 	"stalfos": preload("res://scenes/enemies/stalfos.tscn"),
 }
 const PICKUP_SCENE: PackedScene = preload("res://scenes/items/pickup.tscn")
+const ROCK_SCENE: PackedScene = preload("res://scenes/items/bombable_rock.tscn")
 const PickupScript := preload("res://scenes/items/pickup.gd")
 var _enemy_count: int = 0
 @onready var tilemap: TileMap = $TileMap
@@ -58,6 +59,7 @@ func _ready() -> void:
 	AudioManager.play_theme("dungeon_placeholder")
 	print("[CathedralCrypts] Blockout ready (%dx%d tiles)" % [MAP[0].length(), MAP.size()])
 	_spawn_baseline_enemies()
+	_spawn_demo_rocks()
 	_add_hud()
 	GameManager.game_over.connect(_on_game_over)
 	# Pixel-perfect: force NEAREST filtering on the tiles + tile layer so the
@@ -141,7 +143,7 @@ func _place_markers() -> void:
 	# Major item markers become VISIBLE pickups now (Option B: real in-game
 	# item acquisition with a sprite + jingle), not invisible Areas.
 	_spawn_pickup_at("L", PickupScript.Kind.KEY_ITEM, "lamp", 0, "Got the Lamp!")
-	_spawn_pickup_at("B", PickupScript.Kind.KEY_ITEM, "bomb_bag", 0, "Got the Bomb Bag!")
+	_spawn_pickup_at("B", PickupScript.Kind.KEY_ITEM, "bomb_bag", 20, "Got the Bomb Bag! +20 bombs")
 	_spawn_pickup_at("S", PickupScript.Kind.KEY_ITEM, "basic_shield", 0, "Got the Basic Shield!")
 	# THE bow: comes with a starter quiver of arrows (criterion 9).
 	_spawn_pickup_at("P", PickupScript.Kind.KEY_ITEM, "bow", 10, "Got the Bow! +10 arrows")
@@ -165,6 +167,18 @@ func _spawn_pickup_at(ch: String, kind: int, item_id: String, amount: int, msg: 
 	# Place players/items centered on the tile.
 	pickup.global_position = Vector2(pos.x * TILE + TILE / 2.0, pos.y * TILE + TILE / 2.0)
 	add_child(pickup)
+
+# Breakable rocks (plan T2.2.3). Free-standing obstacles in open floor that a
+# bomb blast destroys — demonstrates the bomb mechanic without gating the main
+# route. Cells are verified floor and clear of pickups/enemies/exit.
+func _spawn_demo_rocks() -> void:
+	for cell in [Vector2i(2, 8), Vector2i(16, 6)]:
+		_spawn_rock(cell)
+
+func _spawn_rock(cell: Vector2i) -> void:
+	var rock: Node2D = ROCK_SCENE.instantiate()
+	rock.global_position = Vector2(cell.x * TILE + TILE / 2.0, cell.y * TILE + TILE / 2.0)
+	add_child(rock)
 
 func _place_save_point() -> void:
 	var sp := preload("res://scenes/world/save_point.tscn").instantiate()

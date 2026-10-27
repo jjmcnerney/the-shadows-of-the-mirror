@@ -24,6 +24,8 @@ const SFX_TRACKS := {
 	"player_hurt": "res://assets/audio/sfx/player_hurt.ogg",
 	"boss_hurt": "res://assets/audio/sfx/boss_hurt.ogg",
 	"item_get": "res://assets/audio/sfx/item_get.wav",
+	"bomb_place": "res://assets/audio/sfx/bomb_place.wav",
+	"bomb_explosion": "res://assets/audio/sfx/bomb_explosion.wav",
 	"error": "res://assets/audio/sfx/error.ogg",
 }
 

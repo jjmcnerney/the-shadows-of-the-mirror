@@ -184,5 +184,58 @@ func _run_tests() -> void:
 		s.queue_free()
 	print("[T15] Stalfos reassembles (DOWN->UP) then dies after lives exhausted: %s (reassembled=%s, died=%s)" % [s_ok and reassembled and truly_died, reassembled, truly_died])
 
+	# Test 16: A bomb blast damages an enemy in radius.
+	var bomb_scene: PackedScene = load("res://scenes/items/bomb.tscn")
+	var bt_ok: bool = bomb_scene != null
+	var bh_before: int = -1
+	var bh_after: int = -1
+	if bt_ok:
+		var foe: Node = load("res://scenes/enemies/octorok.tscn").instantiate()
+		add_child(foe)
+		foe.global_position = Vector2(300, 300)
+		foe.set("health", 8)  # keep it alive so we can read the reduced value
+		var bomb1: Node = bomb_scene.instantiate()
+		add_child(bomb1)
+		bomb1.global_position = Vector2(304, 300)  # within BLAST_RADIUS (22)
+		bh_before = foe.get("health")
+		bomb1.call("apply_blast", [foe])
+		bh_after = foe.get("health") if is_instance_valid(foe) else bh_before
+		bt_ok = bh_after == bh_before - 2  # Bomb.DAMAGE == 2
+	print("[T16] Bomb blast damages enemy by 2: %s (hp %d -> %d)" % [bt_ok, bh_before, bh_after])
+
+	# Test 17: A bomb blast breaks a bombable rock.
+	var rk_ok: bool = false
+	var broke_direct: bool = false
+	var broke_via_blast: bool = false
+	if bomb_scene != null:
+		var rock_a: Node = load("res://scenes/items/bombable_rock.tscn").instantiate()
+		add_child(rock_a)
+		rock_a.global_position = Vector2(400, 400)
+		broke_direct = rock_a.call("try_break")
+		var bomb2: Node = bomb_scene.instantiate()
+		add_child(bomb2)
+		bomb2.global_position = Vector2(500, 500)
+		var rock_b: Node = load("res://scenes/items/bombable_rock.tscn").instantiate()
+		add_child(rock_b)
+		rock_b.global_position = Vector2(504, 500)
+		bomb2.call("apply_blast", [rock_b])
+		broke_via_blast = (rock_b.get("broken") == true)
+		rk_ok = broke_direct and broke_via_blast
+	print("[T17] Bomb blast breaks bombable rock: %s (direct=%s, via_blast=%s)" % [rk_ok, broke_direct, broke_via_blast])
+
+	# Test 18: The Bomb Bag key-item pickup grants the item + 20 starter bombs.
+	var PickupScript2 := preload("res://scenes/items/pickup.gd")
+	var bombs_before: int = GameManager.get_consumable("bombs")
+	var bb_ok: bool = false
+	if not GameManager.has_key_item("bomb_bag"):
+		var pk: Node = load("res://scenes/items/pickup.tscn").instantiate()
+		add_child(pk)
+		pk.kind = PickupScript2.Kind.KEY_ITEM
+		pk.item_id = "bomb_bag"
+		pk.amount = 20
+		pk.call("_acquire")  # run the key-item grant path directly
+		bb_ok = GameManager.has_key_item("bomb_bag") and (GameManager.get_consumable("bombs") - bombs_before == 20)
+	print("[T18] Bomb Bag grants item + 20 bombs: %s (bombs %d -> %d)" % [bb_ok, bombs_before, GameManager.get_consumable("bombs")])
+
 	print("\n=== All tests passed ===")
 	get_tree().quit()

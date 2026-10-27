@@ -25,3 +25,6 @@ text = "Arrows: 0"
 
 [node name="RupeeLabel" type="Label" parent="Margin/VBox"]
 text = "Rupees: 0"
+
+[node name="BombLabel" type="Label" parent="Margin/VBox"]
+text = "Bombs: 0"
