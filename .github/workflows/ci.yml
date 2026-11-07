@@ -32,7 +32,9 @@ jobs:
           timeout 180 godot --headless --path . res://scenes/main/test_root.tscn 2>&1 | tee /tmp/test.log
           echo "=== HARVEST OUTPUT ==="
           cat /tmp/test.log
-          if grep -q "=== All tests passed ===" /tmp/test.log; then
+          if grep -q "=== All tests passed ===" /tmp/test.log \
+             && ! grep -q "FAIL:" /tmp/test.log \
+             && ! grep -qE "handle_crash|Program crashed|SCRIPT ERROR" /tmp/test.log; then
             echo "TESTS_PASSED=true" >> $GITHUB_ENV
           else
             echo "TESTS_PASSED=false" >> $GITHUB_ENV
@@ -41,7 +43,7 @@ jobs:
       - name: Verify test result
         if: env.TESTS_PASSED != 'true'
         run: |
-          echo "::error::Test harness did not print '=== All tests passed ==='"
+          echo "::error::Test harness failed (missing '=== All tests passed ===', a FAIL: line, a SCRIPT ERROR, or a crash)"
           exit 1
 
   export-windows:

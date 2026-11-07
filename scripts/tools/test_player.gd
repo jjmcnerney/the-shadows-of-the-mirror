@@ -237,5 +237,24 @@ func _run_tests() -> void:
 		bb_ok = GameManager.has_key_item("bomb_bag") and (GameManager.get_consumable("bombs") - bombs_before == 20)
 	print("[T18] Bomb Bag grants item + 20 bombs: %s (bombs %d -> %d)" % [bb_ok, bombs_before, GameManager.get_consumable("bombs")])
 
+	# Test 19: REAL runtime detonation (real fuse + physics frames, NOT the seam).
+	# Regression guard for the shipped bug: the deterministic blast seam (T16/T17)
+	# passed while the LIVE path failed — an Area2D's get_overlapping_bodies() never
+	# reports a stationary StaticBody2D rock, and detonating inside _physics_process
+	# (direct space query) crashed. The fix gathers blast bodies via an out-of-step
+	# intersect_shape. This exercises that real path end-to-end with a real fuse.
+	var rock_rt: Node2D = load("res://scenes/items/bombable_rock.tscn").instantiate()
+	add_child(rock_rt)
+	rock_rt.global_position = Vector2(620, 540)
+	var bomb_rt: Node2D = load("res://scenes/items/bomb.tscn").instantiate()
+	add_child(bomb_rt)
+	bomb_rt.global_position = Vector2(630, 540)  # rock sits inside the 22px blast
+	await get_tree().physics_frame
+	await get_tree().create_timer(1.8).timeout   # exceed the 1.5s fuse so it detonates
+	var rt_ok: bool = (not is_instance_valid(rock_rt)) or rock_rt.get("broken") == true
+	if not rt_ok:
+		print("[T19] FAIL: runtime bomb detonation did not break the rock")
+	print("[T19] Runtime bomb detonation (real fuse) breaks rock: %s" % rt_ok)
+
 	print("\n=== All tests passed ===")
 	get_tree().quit()
