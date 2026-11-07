@@ -15,6 +15,7 @@ const KNOCKBACK: float = 150.0
 
 var _fuse: float = FUSE_TIME
 var _exploded: bool = false
+var _detonation_scheduled: bool = false
 var _sprite: Sprite2D = null
 
 func _ready() -> void:
@@ -30,17 +31,43 @@ func setup(origin: Vector2) -> void:
 	global_position = origin
 
 func _physics_process(delta: float) -> void:
-	if _exploded:
+	if _exploded or _detonation_scheduled:
 		return
 	_fuse -= delta
 	if _fuse <= 0.0:
-		explode()
+		# Detonate in an idle (deferred) call, NOT inside _physics_process: the
+		# blast uses a direct_space_state query, which is unsafe during the physics
+		# step and can crash. Scheduling once keeps the fuse firing exactly once.
+		_detonation_scheduled = true
+		explode.call_deferred()
 
-## Runtime detonation: gather bodies currently overlapping the blast area.
+## Runtime detonation: gather bodies inside the blast via a direct space query.
+## NOTE: we intentionally do NOT use get_overlapping_bodies() — an Area2D only
+## incrementally tracks bodies that "wake" a contact, so a stationary StaticBody2D
+## (a rock) sitting still is never reported. intersect_shape asks the physics
+## server outright and reliably finds both rocks and enemies regardless of motion.
+## Must run outside the physics step (see _physics_process).
 func explode() -> void:
-	if _exploded:
-		return
-	apply_blast(get_overlapping_bodies())
+	apply_blast(_gather_blast_bodies())
+
+func _gather_blast_bodies() -> Array:
+	var out: Array = []
+	if not is_inside_tree():
+		return out
+	var space := get_world_2d().direct_space_state
+	var q := PhysicsShapeQueryParameters2D.new()
+	var circ := CircleShape2D.new()
+	circ.radius = BLAST_RADIUS
+	q.shape = circ
+	q.transform = Transform2D(0.0, global_position)
+	q.collide_with_bodies = true
+	q.collide_with_areas = false
+	q.collision_mask = 1       # layer 1: enemies, rocks, walls
+	q.exclude = [self]
+	for hit in space.intersect_shape(q, 32):
+		if hit.has("collider"):
+			out.append(hit["collider"])
+	return out
 
 ## Deterministic blast seam: apply effects to an explicit list of bodies.
 ## Enemies (duck-typed by take_damage) are damaged; rocks (try_break) are broken.
