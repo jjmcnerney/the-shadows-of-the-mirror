@@ -171,10 +171,19 @@ func _handle_chase(delta: float) -> void:
 		current_state = State.ATTACK
 
 func _handle_attack(delta: float) -> void:
-	# Default: contact damage handled in _on_body_entered
-	# Subclasses override for ranged/special attacks
-	velocity = Vector2.ZERO
-	
+	# Default melee: keep pressing toward the player instead of standing still.
+	# Contact damage only fires on real physical touch (move_and_slide slide
+	# collisions), so parking at attack_radius (< body size + body size apart)
+	# makes the enemy permanently harmless — it hovers just out of reach.
+	# Continuing to advance lets contact land; the knockback/nudge in
+	# _check_contact_damage keeps the bodies from gluing. Ranged/special
+	# subclasses override this handler.
+	if player_ref != null:
+		var dir: Vector2 = (player_ref.global_position - global_position).normalized()
+		velocity = dir * move_speed
+	else:
+		velocity = Vector2.ZERO
+
 	# Return to chase after attack window
 	if player_ref and global_position.distance_to(player_ref.global_position) > attack_radius:
 		current_state = State.CHASE

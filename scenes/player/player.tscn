@@ -4,7 +4,7 @@
 [ext_resource type="Texture2D" path="res://assets/art/player/hero_placeholder.png" id="2_tex"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
-size = Vector2(16, 16)
+size = Vector2(14, 14)
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_sword"]
 size = Vector2(16, 8)
