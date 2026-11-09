@@ -1,5 +1,16 @@
 extends Node2D
 
+# Minimal physics body used by T20 to walk a tile-grid corridor. It does nothing
+# but apply a driven velocity and call move_and_slide(), so the test measures the
+# real collision geometry (hitbox vs walls/rock), not any gameplay logic.
+class GapRunner extends CharacterBody2D:
+	var drive: Vector2 = Vector2.ZERO
+	var stop: bool = false
+
+	func _physics_process(_delta: float) -> void:
+		velocity = Vector2.ZERO if stop else drive
+		move_and_slide()
+
 func _ready() -> void:
 	# Defer to avoid editor/tool placeholder issues
 	call_deferred("_run_tests")
@@ -255,6 +266,98 @@ func _run_tests() -> void:
 	if not rt_ok:
 		print("[T19] FAIL: runtime bomb detonation did not break the rock")
 	print("[T19] Runtime bomb detonation (real fuse) breaks rock: %s" % rt_ok)
+
+	# Test 20: 1-tile-gpass physics regression. The player hitbox used to be 16x16
+	# on a 16px tile grid — zero clearance in a 1-tile gap, so the character stuck
+	# in doorways. Guard: hitboxes must be smaller than a tile, a player-sized body
+	# must physically pass a 1-tile gap, a rock must fully block a doorway, and a
+	# broken rock must open it again.
+	var TILE20 := 16
+	var pl: Node = load("res://scenes/player/player.tscn").instantiate()
+	add_child(pl)
+	var p_size: Vector2 = (pl.get_node("BodyCollision") as CollisionShape2D).shape.size
+	pl.queue_free()
+	var size_ok: bool = p_size.x < TILE20 and p_size.y < TILE20
+	var enemy_size_ok: bool = true
+	for esc in ["res://scenes/enemies/octorok.tscn", "res://scenes/enemies/stalfos.tscn", "res://scenes/enemies/moblin.tscn"]:
+		var e: Node = load(esc).instantiate()
+		add_child(e)
+		for c in e.get_children():
+			if c is CollisionShape2D:
+				var s: Vector2 = c.shape.size
+				if s.x >= TILE20 or s.y >= TILE20:
+					enemy_size_ok = false
+		e.queue_free()
+
+	# Corridor: wall rows at y=0 and y=2 (cells x=0..14), gap row y=1 is walkable.
+	var world20 := Node2D.new()
+	add_child(world20)
+	var walls20 := StaticBody2D.new()
+	walls20.collision_layer = 1
+	walls20.add_to_group("test_walls")
+	world20.add_child(walls20)
+	for x in range(0, 15):
+		for wy in [0, 2]:
+			var wc := CollisionShape2D.new()
+			var wr := RectangleShape2D.new()
+			wr.size = Vector2(TILE20, TILE20)
+			wc.shape = wr
+			wc.position = Vector2(x * TILE20 + TILE20 / 2.0, wy * TILE20 + TILE20 / 2.0)
+			walls20.add_child(wc)
+
+	var mover := GapRunner.new()
+	var mc := CollisionShape2D.new()
+	var mr := RectangleShape2D.new()
+	mr.size = p_size
+	mc.shape = mr
+	mover.add_child(mc)
+	world20.add_child(mover)
+	mover.global_position = Vector2(8, TILE20 + TILE20 / 2.0)
+	mover.drive = Vector2(100, 0)
+	await get_tree().create_timer(2.2).timeout   # 100px/s -> ~220px: must clear the corridor
+	var crossed: bool = mover.global_position.x > 170
+
+	# Rock fully blocking the doorway: rock at cell (10,1), left face at x=160.
+	var rock20: Node2D = load("res://scenes/items/bombable_rock.tscn").instantiate()
+	world20.add_child(rock20)
+	rock20.global_position = Vector2(10 * TILE20 + TILE20 / 2.0, TILE20 + TILE20 / 2.0)
+	mover.stop = true
+	mover.global_position = Vector2(24, TILE20 + TILE20 / 2.0)
+	mover.stop = false
+	await get_tree().create_timer(2.5).timeout
+	var blocked: bool = mover.global_position.x < 159   # stuck at rock face (max ~154)
+	rock20.call("try_break")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	await get_tree().create_timer(2.5).timeout
+	var opened: bool = mover.global_position.x > 180     # bomb-opened doorway
+
+	var gap_ok: bool = size_ok and enemy_size_ok and crossed and blocked and opened
+	if not gap_ok:
+		print("[T20] FAIL: gap physics (player_size=%s size_ok=%s enemy_ok=%s crossed=%s blocked=%s opened=%s)" % [p_size, size_ok, enemy_size_ok, crossed, blocked, opened])
+	print("[T20] 1-tile gap traversable, rock blocks doorway, blast reopens it: %s (player %s, crossed=%s, blocked=%s, opened=%s)" % [gap_ok, p_size, crossed, blocked, opened])
+
+	# Test 21: a chasing Stalfos must actually reach and hurt an idle player.
+	# Regression for the base _handle_attack bug: it parked at attack_radius
+	# (22px centers = 8px edge gap for 14px bodies) so contact damage — which
+	# only fires on physical touch via slide collisions — never happened unless
+	# the player moved into the enemy.
+	var shield_backup: int = GameManager.shield_level
+	GameManager.shield_level = 0  # no passive shield block; we want the hit to land
+	var hp21_before: int = GameManager.player_health
+	var ply21: Node = load("res://scenes/player/player.tscn").instantiate()
+	add_child(ply21)
+	ply21.global_position = Vector2(700, 620)
+	var st21: Node = load("res://scenes/enemies/stalfos.tscn").instantiate()
+	add_child(st21)
+	st21.global_position = Vector2(760, 620)  # 60px: inside aggro (110), outside attack radius (22)
+	await get_tree().create_timer(4.0).timeout  # aggro -> chase -> press -> contact hit
+	var stalfos_hurt_player: bool = GameManager.player_health < hp21_before
+	if not stalfos_hurt_player:
+		print("[T21] FAIL: idle player never damaged by chasing Stalfos (hp %d, stalfos at %s, player at %s, state=%s)" % [GameManager.player_health, st21.global_position, ply21.global_position, st21.current_state])
+	GameManager.shield_level = shield_backup
+	GameManager.player_health = hp21_before
+	print("[T21] Chasing Stalfos lands contact damage on an idle player: %s" % stalfos_hurt_player)
 
 	print("\n=== All tests passed ===")
 	get_tree().quit()
